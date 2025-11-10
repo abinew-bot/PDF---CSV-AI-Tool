@@ -3,17 +3,49 @@ import pandas as pd
 from pypdf import PdfReader
 import io
 import re
-from openai import OpenAI
 
-st.set_page_config(page_title="PDF → CSV Converter (AI)", page_icon="📄")
-st.title("📄 PDF → CSV Converter (AI-Powered)")
-st.write("Upload a PDF and convert it into clean CSV data. You can optionally use AI cleanup for better formatting.")
+st.set_page_config(page_title="PDF → CSV Converter", page_icon="📄")
+st.title("📄 PDF → CSV Converter (Smart Cleanup)")
 
-# Sidebar options
+st.write(
+    "Upload a PDF and convert it into structured CSV. "
+    "Optionally use Smart Cleanup for better formatting."
+)
+
+# Sidebar
 st.sidebar.header("Settings")
-use_ai = st.sidebar.toggle("🧠 Use AI cleanup", value=False)
+use_ai = st.sidebar.toggle("🧠 Smart Cleanup", value=True)
 
 uploaded = st.file_uploader("Upload your PDF", type=["pdf"])
+
+def clean_text_rows(rows):
+    # Remove empty lines and normalize spaces
+    cleaned = []
+    for row in rows:
+        row = [re.sub(r"\s+", " ", c.strip()) for c in row if c.strip()]
+        if row:
+            cleaned.append(row)
+
+    # Try to fix inconsistent column lengths
+    max_len = max(len(r) for r in cleaned)
+    fixed = [r + [""] * (max_len - len(r)) for r in cleaned]
+
+    df = pd.DataFrame(fixed)
+
+    # Auto-detect column names if patterns found
+    header_candidates = ["date", "amount", "name", "desc", "id", "txn"]
+    headers = []
+    for i, col in enumerate(df.columns):
+        sample = " ".join(df[col].astype(str).head(5)).lower()
+        for h in header_candidates:
+            if h in sample:
+                headers.append(h.capitalize())
+                break
+        else:
+            headers.append(f"Column_{i+1}")
+    df.columns = headers
+
+    return df
 
 if uploaded:
     reader = PdfReader(uploaded)
@@ -25,26 +57,13 @@ if uploaded:
     df = pd.DataFrame(rows)
 
     if use_ai:
-        st.info("🧠 Cleaning table with AI... please wait")
-        try:
-            client = OpenAI()
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are an expert at formatting messy text data into clean CSV tables."},
-                    {"role": "user", "content": f"Clean and format this data as a CSV table with headers:\n{text[:6000]}"}
-                ],
-                temperature=0
-            )
-            cleaned_csv = response.choices[0].message.content
-            st.download_button("⬇️ Download Cleaned CSV (AI)", cleaned_csv, "cleaned_output.csv", "text/csv")
-            st.success("✅ AI cleanup done!")
-        except Exception as e:
-            st.error(f"AI cleanup failed: {e}")
-    else:
-        st.dataframe(df.head(20))
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download Raw CSV", csv, "output.csv", "text/csv")
+        st.info("✨ Applying Smart Cleanup...")
+        df = clean_text_rows(rows)
+        st.success("✅ Smart cleanup complete!")
+
+    st.dataframe(df.head(20))
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download CSV", csv, "output.csv", "text/csv")
 
 else:
-    st.info("Please upload a PDF file to begin.")
+    st.info("📂 Please upload a PDF file to begin.")
